@@ -12,9 +12,8 @@ private struct ZTMemberProperty {
     var isHaveDefValue = true
 
     var jsonKeys: [String] {
-        let raw = ["\"\(name)\""]
         if normalKeys.isEmpty {
-            return raw
+            return ["\"\(name)\""]
         }
         return normalKeys
     }
@@ -71,25 +70,28 @@ struct ZTORMCodeFactory {
             
             if let transformerExpr = member.transformerExpr {
                 return """
-                    if let t = \(find), t != .null { 
-                        self.\(member.name) = ((\(transformerExpr)).transform(t)) ?? (\(member.initializerExpr)) 
-                    } else {
-                        self.\(member.name) = \(member.initializerExpr) 
-                    }
-                """
-            }
-            return """
                 if let t = \(find), t != .null { 
-                    self.\(member.name) = (try? \(member.type.trimmingCharacters(in: .init(charactersIn: "?")))(from: t)) ?? (\(member.initializerExpr)) 
+                    self.\(member.name) = ((\(transformerExpr)).transform(t)) ?? (\(member.initializerExpr)) 
                 } else {
                     self.\(member.name) = \(member.initializerExpr) 
                 }
+                """
+            }
+            return """
+            if let t = \(find), t != .null { 
+                self.\(member.name) = (try? \(member.type.trimmingCharacters(in: .init(charactersIn: "?")))(from: t)) ?? (\(member.initializerExpr)) 
+            } else {
+                self.\(member.name) = \(member.initializerExpr) 
+            }
             """
         }
         .joined(separator: "\n")
 
         let decoder: DeclSyntax = """
         \(raw: attributesPrefix(option: [.public, .required]))init(from json: JSON) throws {
+        guard json.type == .dictionary else {
+            throw ZTJSONError.invalidData
+        }
         \(raw: body)\(raw: isOverride ? "\ntry super.init(from: json)" : "")
         }
         """

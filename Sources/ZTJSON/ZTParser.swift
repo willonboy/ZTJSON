@@ -24,12 +24,52 @@ public protocol ZTTransform {
 // MARK: - SwiftyJSON extension
 
 public extension JSON {
+    /// 统一查询入口, 通过 XPath 风格的路径查询 JSON 数据
+    /// - 常规查询: find("/0/address/street")
+    /// - 批量查询: find("/*/address/geo")
+    func find(xpath: String) -> JSON? {
+        if xpath.contains("*") {
+            return findAllLogic(xpath: xpath)
+        }
+        return findSingleLogic(xpath: xpath)
+    }
+    
     /// 通过 XPath 风格的路径查询 JSON 数据
     /// 示例: "users/0/name" 或 "data/items/-1/value" (负数表示从末尾倒数)
-    func find(xpath: String) -> JSON? {
+    func findSingleLogic(xpath: String) -> JSON? {
         let components = xpath.components(separatedBy: "/").filter { !$0.isEmpty }
         guard !components.isEmpty else { return self }
         return find(with: components)
+    }
+    
+    // 批量查询逻辑
+    func findAllLogic(xpath: String) -> JSON? {
+        let components = xpath.components(separatedBy: "/").filter { !$0.isEmpty }
+        guard !components.isEmpty else { return nil }
+
+        var results: [JSON] = [self]
+
+        for component in components {
+            var newResults: [JSON] = []
+
+            for current in results {
+                switch (component, current.type) {
+                case ("*", .array):
+                    newResults += current.arrayValue
+                case ("*", .dictionary):
+                    newResults += current.dictionaryValue.values
+                default:
+                    if let next = current.findSingleLogic(xpath: component) {
+                        newResults.append(next)
+                    }
+                }
+            }
+
+            results = newResults
+            guard !results.isEmpty else { return nil }
+        }
+
+        return JSON(results)
     }
 
     private func find(with pathComponents: [String]) -> JSON? {
