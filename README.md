@@ -1,7 +1,15 @@
 # ZTJSON
-基于SwiftyJSON的swift ORM库
+
+A Swift ORM library based on SwiftyJSON
+
+
 
 ```swift
+
+// import lib
+import ZTJSON
+import SwiftyJSON
+
 
 
 // MARK: - Transform
@@ -16,6 +24,9 @@ struct TransformHttp: ZTTransform {
         URL(string: json.stringValue)
     }
 }
+
+
+
 
 // MARK: - Parse Enum
 
@@ -92,8 +103,6 @@ struct Geo {
     @ZTJSONTransformer(TransformDouble)
     var lng = 0.0
 }
-
-
 
 
 
@@ -225,7 +234,6 @@ func get(confs: [XPathParser]) -> Result<[String: any ZTJSONInitializable], XPat
     if let url = URL(string: "https://jsonplaceholder.typicode.com/users") {
         if let d = try? Data(contentsOf: url) {
             if let json = try? JSON(data: d) {
-                print(json.type)
                 var r: [String: any ZTJSONInitializable] = [:]
                 for p in confs {
                     if let j = json.find(xpath: p.xpath), let t = try? p.type.init(from:j) {
