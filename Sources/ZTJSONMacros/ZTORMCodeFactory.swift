@@ -12,10 +12,7 @@ private struct ZTMemberProperty {
     var isHaveDefValue = true
 
     var jsonKeys: [String] {
-        if normalKeys.isEmpty {
-            return ["\"\(name)\""]
-        }
-        return normalKeys
+        return normalKeys + ["\"\(name)\""]
     }
 }
 
