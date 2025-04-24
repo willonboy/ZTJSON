@@ -283,3 +283,29 @@ extension Dictionary: ZTJSONInitializable where Key == String, Value: ZTJSONInit
         self = result
     }
 }
+
+extension Optional: ZTJSONInitializable where Wrapped: ZTJSONInitializable {
+    public init(from json: JSON) throws {
+        self = try? Wrapped.init(from: json)
+    }
+}
+
+
+
+private protocol OptionalTagProtocol {}
+extension Optional: OptionalTagProtocol {}
+
+public func isOptionalValue<T: Any>(_ value: T) -> Bool {
+    Mirror(reflecting: value).displayStyle == .optional
+}
+
+public func isOptionalType<T>(_ type: T.Type) -> Bool {
+    type is OptionalTagProtocol.Type
+}
+
+//var userList: [User]? = []
+//print("isOptionalValue", isOptionalValue(userList))           // true
+//print("isOptionalType", isOptionalType(type(of: userList)))   // true
+//print("isOptionalType", isOptionalType([Address]?.self))      // true
+
+
