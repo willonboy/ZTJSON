@@ -9,5 +9,7 @@ struct ZTJSONPlugin: CompilerPlugin {
         ZTJSONKey.self,
         ZTJSONTransformer.self,
         ZTJSONLetDefValue.self,
+        ZTJSONExport.self,
+        ZTJSONExportSubclass.self,
     ]
 }

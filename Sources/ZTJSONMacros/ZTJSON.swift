@@ -71,3 +71,57 @@ public struct ZTJSONSubclass: MemberMacro {
         return [decoder, memberwiseInit]
     }
 }
+
+
+
+
+public struct ZTJSONExport: ExtensionMacro, MemberMacro {
+    public static func expansion(of node: AttributeSyntax,
+                                 attachedTo declaration: some DeclGroupSyntax,
+                                 providingExtensionsOf type: some TypeSyntaxProtocol,
+                                 conformingTo protocols: [TypeSyntax], in context: some MacroExpansionContext) throws -> [ExtensionDeclSyntax] {
+        var inheritedTypes: InheritedTypeListSyntax?
+        if let declaration = declaration.as(StructDeclSyntax.self) {
+            inheritedTypes = declaration.inheritanceClause?.inheritedTypes
+        } else if let declaration = declaration.as(ClassDeclSyntax.self) {
+            inheritedTypes = declaration.inheritanceClause?.inheritedTypes
+        } else {
+            throw ZTASTError("use @ZTJSONExport in `struct` or `class`")
+        }
+        if let inheritedTypes = inheritedTypes,
+           inheritedTypes.contains(where: { inherited in inherited.type.trimmedDescription == "ZTJSONExportable" }) {
+            return []
+        }
+
+        let ext: DeclSyntax =
+            """
+            extension \(type.trimmed): ZTJSONExportable {}
+            """
+
+        return [ext.cast(ExtensionDeclSyntax.self)]
+    }
+
+    public static func expansion(of node: SwiftSyntax.AttributeSyntax,
+                                 providingMembersOf declaration: some SwiftSyntax.DeclGroupSyntax,
+                                 in context: some SwiftSyntaxMacros.MacroExpansionContext) throws -> [SwiftSyntax.DeclSyntax] {
+        let factory = try ZTORMCodeFactory(decl: declaration, context: context)
+        let encoder = try factory.genJSONExportEncoder()
+        return [encoder]
+    }
+}
+
+
+public struct ZTJSONExportSubclass: MemberMacro {
+    public static func expansion(of node: SwiftSyntax.AttributeSyntax,
+                                 providingMembersOf declaration: some SwiftSyntax.DeclGroupSyntax,
+                                 in context: some SwiftSyntaxMacros.MacroExpansionContext) throws -> [SwiftSyntax.DeclSyntax]
+    {
+        guard declaration.is(ClassDeclSyntax.self) else {
+            throw ZTASTError("not a `subclass`")
+        }
+
+        let factory = try ZTORMCodeFactory(decl: declaration, context: context)
+        let encoder = try factory.genJSONExportEncoder(isOverride: true)
+        return [encoder]
+    }
+}

@@ -2,6 +2,16 @@
 
 A Swift ORM library based on SwiftyJSON
 
+实际上当前存在很多基于swift宏的JSON ORM库，比如最经典的CodableWrapper，及很多它的套皮二次改造。 但这些库都是直接基于Codeable的，会导致Model膨胀，并不灵活。 
+ZTJSON是一个基于SwiftyJSON的JSON ORM库，它的设计目标是：
+1. 支持swift宏 
+2. 支持XPath语法 
+3. 支持自定义Transform 
+4. 支持自定义Enum解析
+5. 支持配置化解析，避免Model类膨胀 
+6. 支持let设置默认值 
+7. 支持Optional解析
+8. 支持返回json string 
 
 
 ```swift
@@ -53,37 +63,43 @@ enum Animal: String, ZTJSONInitializable {
     case fish
 }
 
+extension Animal: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        JSON(self.rawValue)
+    }
+}
 
-// MARK: - Normal
 
+
+
+@ZTJSONExport
 @ZTJSON
 struct Company {
     var name: String = ""
     var catchPhrase: String = ""
-    @ZTJSONKey("bussness", "bs")
+    @ZTJSONKey("bs", "bussness")
     var bussness: String = ""
 }
 
 
+
+@ZTJSONExport
 @ZTJSON
-class BaseAddress {
+public class BaseAddress {
     var street = ""
     var suite: String = ""
-    // support expr init
     var city:String = Bool.random() ? "Shang Hai" : "Bei Jing"
     
-    // ignore 
     var fullAddr: String {
         city + street + suite
     }
 }
 
-
+@ZTJSONExportSubclass
 @ZTJSONSubclass
-class Address: BaseAddress {
+public class Address: BaseAddress {
     var zipcode: String = ""
     
-    // support transform
     @ZTJSONTransformer(TransformDouble)
     @ZTJSONKey("geo/lat")
     var lat: Double = 0
@@ -95,6 +111,7 @@ class Address: BaseAddress {
 
 
 
+@ZTJSONExport
 @ZTJSON
 struct Geo {
     @ZTJSONTransformer(TransformDouble)
@@ -107,6 +124,14 @@ struct Geo {
 
 
 
+
+
+extension URL: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self.absoluteString) }
+}
+
+
+@ZTJSONExport
 @ZTJSON
 class User {
     // ignore static 
@@ -155,8 +180,7 @@ extension User {
 
 
 
-// MARK: - nest
-
+@ZTJSONExport
 @ZTJSON
 class NestAddress {
     @ZTJSONKey("address/street")
@@ -227,8 +251,6 @@ extension Dictionary where Key == String, Value == any ZTJSONInitializable {
     }
 }
 
-
-
 @discardableResult
 func get(confs: [XPathParser]) -> Result<[String: any ZTJSONInitializable], XPathParserError> {
     if let url = URL(string: "https://jsonplaceholder.typicode.com/users") {
@@ -245,12 +267,17 @@ func get(confs: [XPathParser]) -> Result<[String: any ZTJSONInitializable], XPat
                 
                 if let usr: [User] = r[.init(type: [User].self)] {
                     print("users", usr)
+                    print("json string \n\n")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 // Or
                 if let usr: [User] = r[xpath: "/"] {
                     print("users", usr)
+                    print("json string \n\n")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 print("result \(r)")
+                
                 return Result.success(r)
             }
         }
@@ -289,8 +316,8 @@ get(confs: [.init(type: [User].self),
             .init("/0/address", type: Address.self),
             .init("/*/address", type: [Address].self),
             .init("/*/address/geo", type: [Geo].self),
-            .init(type: [NestAddress].self)
+            // OR
+            //.init(type: [NestAddress].self)
 ])
-
 
 ```

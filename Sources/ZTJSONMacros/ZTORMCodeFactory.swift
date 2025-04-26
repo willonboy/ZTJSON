@@ -187,3 +187,34 @@ private extension ZTORMCodeFactory {
         return memberProperties
     }
 }
+
+
+
+extension ZTORMCodeFactory {
+    func genJSONExportEncoder(isOverride: Bool = false) throws -> DeclSyntax {
+        let body = memberProperties.enumerated().map { idx, member in
+            return """
+            \(member.jsonKeys.first { $0.contains("/") == false }! ) : self.\(member.name).asJSONValue(),
+            """
+        }
+        .joined(separator: "\n")
+
+        let encoder: DeclSyntax = if isOverride {
+            """
+            \(raw: attributesPrefix(option: [.public]))override func asJSONValue() -> JSON {
+                let sup = super.asJSONValue()
+                let sub = JSON([\(raw: body)])
+                return (try? sup.merged(with: sub)) ?? JSON.null
+            }
+            """
+        } else {
+            """
+            \(raw: attributesPrefix(option: [.public]))func asJSONValue() -> JSON {
+                JSON([\(raw: body)])
+            }
+            """
+        }
+        
+        return encoder
+    }
+}

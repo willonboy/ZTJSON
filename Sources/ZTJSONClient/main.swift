@@ -277,13 +277,21 @@ enum Animal: String, ZTJSONInitializable {
     case fish
 }
 
+extension Animal: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        JSON(self.rawValue)
+    }
+}
 
 
+
+
+@ZTJSONExport
 @ZTJSON
 struct Company {
     var name: String = ""
     var catchPhrase: String = ""
-    @ZTJSONKey("bussness", "bs")
+    @ZTJSONKey("bs", "bussness")
     var bussness: String = ""
 }
 
@@ -302,9 +310,9 @@ extension Company: Swift.CustomStringConvertible, Swift.CustomDebugStringConvert
     }
 }
 
-
+@ZTJSONExport
 @ZTJSON
-class BaseAddress {
+public class BaseAddress {
     var street = ""
     var suite: String = ""
     var city:String = Bool.random() ? "Shang Hai" : "Bei Jing"
@@ -314,9 +322,9 @@ class BaseAddress {
     }
 }
 
-
+@ZTJSONExportSubclass
 @ZTJSONSubclass
-class Address: BaseAddress {
+public class Address: BaseAddress {
     var zipcode: String = ""
     
     @ZTJSONTransformer(TransformDouble)
@@ -346,7 +354,7 @@ extension Address: Swift.CustomStringConvertible, Swift.CustomDebugStringConvert
     }
 }
 
-
+@ZTJSONExport
 @ZTJSON
 struct Geo {
     @ZTJSONTransformer(TransformDouble)
@@ -373,7 +381,12 @@ extension Geo: Swift.CustomStringConvertible, Swift.CustomDebugStringConvertible
 
 
 
+extension URL: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self.absoluteString) }
+}
 
+
+@ZTJSONExport
 @ZTJSON
 class User {
     @MainActor
@@ -435,7 +448,7 @@ extension User {
 
 
 
-
+@ZTJSONExport
 @ZTJSON
 class NestAddress {
     @ZTJSONKey("address/street")
@@ -545,12 +558,17 @@ func get(confs: [XPathParser]) -> Result<[String: any ZTJSONInitializable], XPat
                 
                 if let usr: [User] = r[.init(type: [User].self)] {
                     print("users", usr)
+                    print("json string \n\n")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 // Or
                 if let usr: [User] = r[xpath: "/"] {
                     print("users", usr)
+                    print("json string \n\n")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 print("result \(r)")
+                
                 return Result.success(r)
             }
         }
@@ -589,7 +607,8 @@ get(confs: [.init(type: [User].self),
             .init("/0/address", type: Address.self),
             .init("/*/address", type: [Address].self),
             .init("/*/address/geo", type: [Geo].self),
-            .init(type: [NestAddress].self)
+            // OR
+            //.init(type: [NestAddress].self)
 ])
 
 

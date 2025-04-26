@@ -19,3 +19,12 @@ public macro ZTJSONTransformer(_ transformer: any ZTTransform.Type) = #externalM
 
 @attached(peer)
 public macro ZTJSONLetDefValue(_ defValue: Any) = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONLetDefValue")
+
+
+
+@attached(member, names: named(asJSONValue), arbitrary)
+@attached(extension, conformances: ZTJSONExportable)
+public macro ZTJSONExport() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONExport")
+
+@attached(member, names: named(asJSONValue), arbitrary)
+public macro ZTJSONExportSubclass() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONExportSubclass")

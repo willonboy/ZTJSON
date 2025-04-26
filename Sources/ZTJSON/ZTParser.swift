@@ -309,3 +309,90 @@ public func isOptionalType<T>(_ type: T.Type) -> Bool {
 //print("isOptionalType", isOptionalType([Address]?.self))      // true
 
 
+
+
+
+
+
+
+
+public protocol ZTJSONExportable {
+    func asJSONValue() -> JSON
+}
+
+extension Int: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Int8: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Int16: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Int32: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Int64: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension UInt: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension UInt8: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension UInt16: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension UInt32: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension UInt64: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Float: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Double: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Bool: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension String: ZTJSONExportable {
+    public func asJSONValue() -> JSON { JSON(self) }
+}
+
+extension Optional: ZTJSONExportable where Wrapped: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        switch self {
+        case .some(let val): return val.asJSONValue()
+        case .none: return JSON(NSNull())
+        }
+    }
+}
+
+extension Array: ZTJSONExportable where Element: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        JSON(self.map { $0.asJSONValue() })
+    }
+}
+
+extension Dictionary: ZTJSONExportable where Key == String, Value: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        JSON(self.mapValues { $0.asJSONValue() })
+    }
+}
