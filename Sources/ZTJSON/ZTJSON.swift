@@ -20,6 +20,8 @@ public macro ZTJSONTransformer(_ transformer: any ZTTransform.Type) = #externalM
 @attached(peer)
 public macro ZTJSONLetDefValue(_ defValue: Any) = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONLetDefValue")
 
+@attached(peer)
+public macro ZTJSONIgnore() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONIgnore")
 
 
 @attached(member, names: named(asJSONValue), arbitrary)

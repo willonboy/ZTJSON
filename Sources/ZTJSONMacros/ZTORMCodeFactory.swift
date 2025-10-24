@@ -137,13 +137,22 @@ private extension ZTORMCodeFactory {
                 }
                 
                 let attributes = variable.attributes
+
+                // 忽略被标记为 @ZTJSONIgnore 的属性
+                if attributes.contains(where: {
+                    $0.as(AttributeSyntax.self)?
+                        .attributeName.as(IdentifierTypeSyntax.self)?
+                        .description == "ZTJSONIgnore"
+                }) {
+                    return nil
+                }
+
                 var initializerExpr = ""
                 var isHaveDefValue = false
                 if let initializer = variable.bindings.compactMap(\.initializer).first {
                     initializerExpr = initializer.value.description
                     isHaveDefValue = true
                 } else {
-                    
                     if variable.isOptionalType {
                         initializerExpr = "nil"
                     } else {

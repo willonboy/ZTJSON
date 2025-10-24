@@ -395,6 +395,8 @@ class User {
     lazy var uuid = {
         UUID().uuidString
     }
+    @ZTJSONIgnore
+    var ig = UUID()
     @ZTJSONLetDefValue(0)
     let id: Int
     @ZTJSONLetDefValue("")
@@ -458,7 +460,7 @@ class NestAddress {
     @ZTJSONKey("address/city")
     var city = ""
     @ZTJSONKey("address/zipcode")
-    var zipcode: String = ""
+    var zipCode: String = ""
     
     @ZTJSONTransformer(TransformDouble)
     @ZTJSONKey("address/geo/lat")
@@ -476,7 +478,7 @@ extension NestAddress: Swift.CustomStringConvertible, Swift.CustomDebugStringCon
     street:\"\(street)\", 
     suite:\"\(suite)\", 
     city:\"\(city)\", 
-    zipcode:\"\(zipcode)\", 
+    zipcode:\"\(zipCode)\", 
     lat:\"\(lat)\", 
     lng:\"\(lng)\"
     }
