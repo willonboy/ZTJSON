@@ -254,7 +254,7 @@ struct TransformHttp: ZTTransform {
 
 
 
-enum Animal: String, ZTJSONInitializable {
+enum Animal: String, ZTJSONInitializable, Codable {
     init(from json: JSON) throws {
         guard let rawValue = json.string else {
             throw NSError(domain: "Animal", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON for Animal"])
@@ -312,7 +312,7 @@ extension Company: Swift.CustomStringConvertible, Swift.CustomDebugStringConvert
 
 @ZTJSONExport
 @ZTJSON
-public class BaseAddress {
+open class BaseAddress {
     var street = ""
     var suite: String = ""
     var city:String = Bool.random() ? "Shang Hai" : "Bei Jing"
@@ -324,14 +324,14 @@ public class BaseAddress {
 
 @ZTJSONExportSubclass
 @ZTJSONSubclass
-public class Address: BaseAddress {
+open class Address: BaseAddress {
     var zipcode: String = ""
     
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     @ZTJSONKey("geo/lat")
     var lat: Double = 0
     
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     @ZTJSONKey("geo/lng")
     var lng = 0.0
 }
@@ -357,10 +357,10 @@ extension Address: Swift.CustomStringConvertible, Swift.CustomDebugStringConvert
 @ZTJSONExport
 @ZTJSON
 struct Geo {
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     var lat: Double = 0
     
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     var lng = 0.0
 }
 
@@ -408,7 +408,7 @@ class User {
     
     var phone = ""
     
-    @ZTJSONTransformer(TransformHttp)
+    @ZTJSONTransformer(TransformHttp.self)
     var website:URL?
     
     var company: Company = .init()
@@ -462,11 +462,11 @@ class NestAddress {
     @ZTJSONKey("address/zipcode")
     var zipCode: String = ""
     
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     @ZTJSONKey("address/geo/lat")
     var lat: Double = 0
     
-    @ZTJSONTransformer(TransformDouble)
+    @ZTJSONTransformer(TransformDouble.self)
     @ZTJSONKey("address/geo/lng")
     var lng = 0.0
 }
