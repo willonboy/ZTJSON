@@ -4,11 +4,11 @@
 import Foundation
 import SwiftyJSON
 
-@attached(member, names: named(init(from:)), arbitrary)
-@attached(extension, conformances: ZTJSONInitializable)
+@attached(member, names: named(init(from:)), named(encode(to:)), arbitrary)
+@attached(extension, conformances: ZTJSONInitializable, Codable)
 public macro ZTJSON() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSON")
 
-@attached(member, names: named(init(from:)), arbitrary)
+@attached(member, names: named(init(from:)), named(encode(to:)), arbitrary)
 public macro ZTJSONSubclass() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONSubclass")
 
 @attached(peer)
