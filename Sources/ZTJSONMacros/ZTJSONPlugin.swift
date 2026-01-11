@@ -10,7 +10,7 @@ struct ZTJSONPlugin: CompilerPlugin {
         ZTJSONTransformer.self,
         ZTJSONLetDefValue.self,
         ZTJSONIgnore.self,
-        ZTJSONExport.self,
-        ZTJSONExportSubclass.self,
+        ZTAPIParam.self,
+        ZTAPIParamKey.self,
     ]
 }

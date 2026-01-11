@@ -14,6 +14,81 @@ private struct ZTMemberProperty {
     var encodeKey: String {
         normalKeys.first(where: { !$0.contains("/") }) ?? "\"\(name)\""
     }
+
+    /// XPath 类型
+    enum XPathType {
+        case simple           // 简单键名，如 "name"
+        case nested           // 简单嵌套路径，如 "geo/lat"
+        case complex          // 复杂路径，包含通配符、数组索引等
+    }
+
+    /// 判断第一个键的 XPath 类型
+    var firstKeyType: XPathType {
+        guard let firstKey = normalKeys.first else { return .simple }
+        return Self.classifyXPath(firstKey)
+    }
+
+    /// 判断 XPath 类型
+    static func classifyXPath(_ xpath: String) -> XPathType {
+        // 去掉引号
+        let path = xpath.trimmingCharacters(in: .init(charactersIn: "\""))
+
+        // 不包含 /，是简单键名
+        guard path.contains("/") else { return .simple }
+
+        // 检查是否包含复杂语法
+        let complexPatterns = ["*", "[", "]", "//", "@", "!", "|", "="]
+        for pattern in complexPatterns {
+            if path.contains(pattern) {
+                return .complex
+            }
+        }
+
+        // 检查是否是负数索引（如 -1, -2）
+        let components = path.split(separator: "/")
+        for component in components {
+            if component.hasPrefix("-") {
+                return .complex
+            }
+        }
+
+        // 只包含简单的 / 分隔，是嵌套路径
+        return .nested
+    }
+
+    /// 解析嵌套路径，返回 (父路径, 最终键名)
+    /// 例如: "geo/lat" -> ("geo", "lat")
+    ///      "user/address/geo/lat" -> ("user/address/geo", "lat")
+    func parseNestedPath(_ xpath: String) -> (parentPath: String, leafKey: String)? {
+        let path = xpath.trimmingCharacters(in: .init(charactersIn: "\""))
+        let components = path.split(separator: "/").map { String($0) }
+        guard components.count >= 2 else { return nil }
+        let parentPath = components.dropLast().joined(separator: "/")
+        let leafKey = components.last!
+        return (parentPath, leafKey)
+    }
+
+    /// 用于 Codable CodingKeys 的 case 名称（属性名）
+    var codableKey: String {
+        return name
+    }
+
+    /// 用于 Codable 解码的所有可能键名（不包含 XPath 路径）
+    /// 支持多 key 回退机制
+    var codableKeys: [String] {
+        let keys = normalKeys.filter { !$0.contains("/") }.map { $0.trimmingCharacters(in: .init(charactersIn: "\"")) }
+        return keys.isEmpty ? [name] : keys
+    }
+
+    /// 获取第一个非简单路径的嵌套路径键（如果有）
+    var nestedPathKey: String? {
+        for key in normalKeys {
+            if Self.classifyXPath(key) == .nested {
+                return key.trimmingCharacters(in: .init(charactersIn: "\""))
+            }
+        }
+        return nil
+    }
 }
 
 struct ZTORMCodeFactory {
@@ -26,10 +101,15 @@ struct ZTORMCodeFactory {
     let context: MacroExpansionContext
     fileprivate let decl: DeclGroupSyntax
     fileprivate var memberProperties: [ZTMemberProperty] = []
+    /// 是否忽略复杂 XPath，简单键和嵌套路径 (如 geo/lat) 使用 Codable
+    /// true (默认): 简单键和嵌套路径使用 Codable，复杂 XPath 使用 JSON.find()
+    /// false: 所有 XPath 使用 JSON.find() 方式
+    let ignoreComplexXPath: Bool
 
-    init(decl: DeclGroupSyntax, context: some MacroExpansionContext) throws {
+    init(decl: DeclGroupSyntax, context: some MacroExpansionContext, ignoreComplexXPath: Bool = true) throws {
         self.decl = decl
         self.context = context
+        self.ignoreComplexXPath = ignoreComplexXPath
         memberProperties = try loadMemberProperties()
     }
 
@@ -84,7 +164,7 @@ struct ZTORMCodeFactory {
         }.joined(separator: "\n")
     }
 
-    // 1. ZTJSONInitializable 宏实现 (还原你的原本实现)
+    // 1. ZTJSONInitializable 宏实现 (还原你的原本实现，始终支持 XPath)
     func genORMInitializer(isSubclass: Bool = false) throws -> DeclSyntax {
         let prefix = attributesPrefix(option: [.public, .required])
         return """
@@ -94,39 +174,254 @@ struct ZTORMCodeFactory {
         }
         """
     }
-    
-    // 2. Decodable 宏实现 (为了规避 convenience 报错，直接展开逻辑)
+
+    // 2. Decodable 宏实现
     func genDecodableInitializer(isSubclass: Bool = false) throws -> DeclSyntax {
         let prefix = attributesPrefix(option: [.public, .required])
-        return """
-        \(raw: prefix)init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            let data = try container.decode(Data.self)
-            let json = try JSON(data: data)
-            \(raw: genOriginalORMBody(jsonVar: "json"))
-            \(raw: isSubclass ? "try super.init(from: decoder)" : "")
+
+        // 检查是否有任何属性使用复杂 XPath
+        let hasComplexXPath = memberProperties.contains { $0.firstKeyType == .complex }
+        let hasNestedXPath = memberProperties.contains { $0.firstKeyType == .nested }
+
+        if ignoreComplexXPath && !hasComplexXPath {
+            // 标准 Codable 实现：使用 keyedContainer
+            // 支持简单键 + 嵌套路径（如 geo/lat）
+            let decodeBody = memberProperties.map { member in
+                let propAccess = "self.\(member.name)"
+                let wrappedType = member.type.trimmingCharacters(in: .init(charactersIn: "?"))
+
+                // 检查是否有嵌套路径
+                if let nestedKey = member.nestedPathKey,
+                   let (parentPath, leafKey) = member.parseNestedPath(nestedKey) {
+                    // 嵌套路径：使用 nestedContainer
+                    // 需要为父路径生成 CodingKeys
+                    return generateNestedDecodeCode(member: member, parentPath: parentPath, leafKey: leafKey)
+                }
+
+                // 简单键：直接解码
+                let keys = member.codableKeys
+                let keyReferences: [String] = keys.enumerated().map { index, _ in
+                    if index == 0 {
+                        return ".\(member.codableKey)"
+                    } else {
+                        return ".\(member.codableKey)_\(index)"
+                    }
+                }
+
+                if member.isOptional {
+                    if keys.count == 1 {
+                        let keyRef = keyReferences[0]
+                        return """
+                        \(propAccess) = try container.decodeIfPresent(\(wrappedType).self, forKey: \(keyRef))
+                        """
+                    } else {
+                        var code = ""
+                        for (index, keyRef) in keyReferences.enumerated() {
+                            if index == 0 {
+                                code += "if let v = try container.decodeIfPresent(\(wrappedType).self, forKey: \(keyRef)) {\n"
+                                code += "    \(propAccess) = v\n"
+                            } else {
+                                code += "} else if let v = try container.decodeIfPresent(\(wrappedType).self, forKey: \(keyRef)) {\n"
+                                code += "    \(propAccess) = v\n"
+                            }
+                        }
+                        code += "} else {\n"
+                        code += "    \(propAccess) = nil\n"
+                        code += "}\n"
+                        return code
+                    }
+                } else if member.isHaveDefValue {
+                    if keys.count == 1 {
+                        let keyRef = keyReferences[0]
+                        return """
+                        \(propAccess) = (try? container.decode(\(wrappedType).self, forKey: \(keyRef))) ?? (\(member.initializerExpr))
+                        """
+                    } else {
+                        var code = ""
+                        for (index, keyRef) in keyReferences.enumerated() {
+                            if index == 0 {
+                                code += "let _\(member.name)Val\(index + 1) = try? container.decode(\(wrappedType).self, forKey: \(keyRef))\n"
+                            } else {
+                                code += "let _\(member.name)Val\(index + 1) = _\(member.name)Val\(index) == nil ? try? container.decode(\(wrappedType).self, forKey: \(keyRef)) : _\(member.name)Val\(index)\n"
+                            }
+                        }
+                        code += "let _\(member.name)Result: \(wrappedType)? = "
+                        for index in 0..<keys.count {
+                            if index > 0 { code += " ?? " }
+                            code += "_\(member.name)Val\(index + 1)"
+                        }
+                        code += "\n"
+                        code += "\(propAccess) = _\(member.name)Result ?? (\(member.initializerExpr))\n"
+                        return code
+                    }
+                } else {
+                    if keys.count == 1 {
+                        let keyRef = keyReferences[0]
+                        return """
+                        \(propAccess) = try container.decode(\(wrappedType).self, forKey: \(keyRef))
+                        """
+                    } else {
+                        var code = ""
+                        for (index, keyRef) in keyReferences.enumerated() {
+                            if index == 0 {
+                                code += "let _\(member.name)Val\(index + 1) = try? container.decode(\(wrappedType).self, forKey: \(keyRef))\n"
+                            } else {
+                                code += "let _\(member.name)Val\(index + 1) = _\(member.name)Val\(index) == nil ? try? container.decode(\(wrappedType).self, forKey: \(keyRef)) : _\(member.name)Val\(index)\n"
+                            }
+                        }
+                        code += "guard let \(propAccess) = "
+                        for index in 0..<keys.count {
+                            if index > 0 { code += " ?? " }
+                            code += "_\(member.name)Val\(index + 1)"
+                        }
+                        code += " else {\n"
+                        code += "    throw DecodingError.keyNotFound(CodingKeys(stringValue: \"\(keys.joined(separator: "\", \""))\"!, intValue: nil), container.codingPath)\n"
+                        code += "}\n"
+                        return code
+                    }
+                }
+            }.joined(separator: "\n")
+
+            return """
+            \(raw: prefix)init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                \(raw: decodeBody)
+                \(raw: isSubclass ? "try super.init(from: decoder)" : "")
+            }
+            """
+        } else {
+            // 原实现：使用 singleValueContainer + base64
+            // 用于复杂 XPath（通配符、数组索引等）
+            return """
+            \(raw: prefix)init(from decoder: Decoder) throws {
+                let container = try decoder.singleValueContainer()
+                let data = try container.decode(Data.self)
+                let json = try JSON(data: data)
+                \(raw: genOriginalORMBody(jsonVar: "json"))
+                \(raw: isSubclass ? "try super.init(from: decoder)" : "")
+            }
+            """
         }
-        """
+    }
+
+    /// 生成嵌套路径的解码代码
+    /// 例如：geo/lat -> container.nestedContainer(keyedBy: CodingKeys.self, forKey: .geo).decode(Double.self, forKey: .lat)
+    private func generateNestedDecodeCode(member: ZTMemberProperty, parentPath: String, leafKey: String) -> String {
+        let propAccess = "self.\(member.name)"
+        let wrappedType = member.type.trimmingCharacters(in: .init(charactersIn: "?"))
+        let leafCodingKey = ".\(member.name)"  // 使用属性名作为 CodingKey
+
+        // 解析父路径的各个层级
+        let pathComponents = parentPath.split(separator: "/").map { String($0) }
+
+        // 构建 nestedContainer 调用链
+        var containerChain = "container"
+        for component in pathComponents {
+            containerChain += ".nestedContainer(keyedBy: CodingKeys.self, forKey: .\(component))"
+        }
+
+        // 根据类型生成解码代码
+        if member.isOptional {
+            return """
+            if let nestedContainer = try? \(containerChain) {
+                \(propAccess) = try? nestedContainer.decodeIfPresent(\(wrappedType).self, forKey: \(leafCodingKey))
+            }
+            """
+        } else if member.isHaveDefValue {
+            return """
+            if let nestedContainer = try? \(containerChain) {
+                \(propAccess) = (try? nestedContainer.decode(\(wrappedType).self, forKey: \(leafCodingKey))) ?? (\(member.initializerExpr))
+            } else {
+                \(propAccess) = \(member.initializerExpr)
+            }
+            """
+        } else {
+            return """
+            let nestedContainer = try \(containerChain)
+            \(propAccess) = try nestedContainer.decode(\(wrappedType).self, forKey: \(leafCodingKey))
+            """
+        }
     }
 
     // 3. Encodable 宏实现
     func genEncodableMethod(isSubclass: Bool = false) throws -> DeclSyntax {
-        let keys = memberProperties.map { "case \($0.name) = \($0.encodeKey)" }.joined(separator: "\n")
-        let encodes = memberProperties.map { "try container.encode(self.\($0.name), forKey: .\($0.name))" }.joined(separator: "\n")
         let prefix = attributesPrefix(option: [.public], isSubclass: isSubclass, isMethod: true)
-        return """
-        \(raw: prefix)func encode(to encoder: Encoder) throws {
-            enum CodingKeys: String, CodingKey { \(raw: keys) }
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            \(raw: encodes)
-            \(raw: isSubclass ? "try super.encode(to: encoder)" : "")
+
+        // 检查是否有复杂 XPath
+        let hasComplexXPath = memberProperties.contains { $0.firstKeyType == .complex }
+
+        if ignoreComplexXPath && !hasComplexXPath {
+            // 标准 Codable 实现：使用 keyedContainer
+            let encodeBody = memberProperties.map { member in
+                let key = member.codableKey
+                let propAccess = "self.\(member.name)"
+
+                if member.isOptional {
+                    // Optional 类型：如果非 nil 则编码
+                    return """
+                    if let value = \(propAccess) {
+                        try container.encode(value, forKey: .\(key))
+                    }
+                    """
+                } else {
+                    // 非 Optional 类型
+                    return """
+                    try container.encode(\(propAccess), forKey: .\(key))
+                    """
+                }
+            }.joined(separator: "\n")
+
+            return """
+            \(raw: prefix)func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                \(raw: encodeBody)
+            }
+            """
+        } else {
+            // 原实现：使用 singleValueContainer + base64
+            if isSubclass {
+                return """
+                \(raw: prefix)func encode(to encoder: Encoder) throws {
+                    var container = encoder.singleValueContainer()
+                    let jsonData = try super.asJSONValue().rawData()
+                    try container.encode(jsonData)
+                }
+                """
+            } else {
+                return """
+                \(raw: prefix)func encode(to encoder: Encoder) throws {
+                    var container = encoder.singleValueContainer()
+                    let jsonData = try self.asJSONValue().rawData()
+                    try container.encode(jsonData)
+                }
+                """
+            }
         }
-        """
     }
 
     // 4. Export 宏实现
+    // 使用 ZTJSONExportable 转换来处理所有类型（包括基本类型通过扩展支持）
     func genJSONExportEncoder(isSubclass: Bool = false) throws -> DeclSyntax {
-        let body = memberProperties.map { "\( $0.encodeKey ) : self.\($0.name).asJSONValue()," }.joined(separator: "\n")
+        // 生成每个属性的转换代码，支持 Optional 和非 Optional
+        let body = memberProperties.map { member in
+            let propAccess = "self.\(member.name)"
+            let key = member.encodeKey
+
+            // 处理 Optional 类型
+            if member.isOptional {
+                // Optional: 使用 flatMap 处理，nil 时返回 .null
+                // 注意语法：\(propAccess) as (any ZTJSONExportable)?
+                return """
+                \(key): ((\(propAccess) as (any ZTJSONExportable)?)).flatMap { $0.asJSONValue() } ?? JSON.null,
+                """
+            } else {
+                // 非 Optional: 强制转换并调用 asJSONValue()
+                return """
+                \(key): (\(propAccess) as any ZTJSONExportable).asJSONValue(),
+                """
+            }
+        }.joined(separator: "\n")
+
         let prefix = attributesPrefix(option: [.public], isSubclass: isSubclass, isMethod: true)
         if isSubclass {
             return """
@@ -157,6 +452,48 @@ struct ZTORMCodeFactory {
         \(raw: prefix)init(\(raw: parameters)) {
             \(raw: memberProperties.map { "self.\($0.name) = \($0.name)" }.joined(separator: "\n"))
             \(raw: isSubclass ? "super.init()" : "")
+        }
+        """
+    }
+
+    // 6. CodingKeys enum 宏实现（仅当 ignoreComplexXPath 时需要）
+    // 为每个属性生成 CodingKeys，多 key 属性生成多个 case（主键 + 回退键）
+    // 嵌套路径需要为父路径生成 CodingKeys
+    func genCodingKeys() throws -> DeclSyntax {
+        var keyCases: [String] = []
+        var nestedParentKeys: Set<String> = []
+
+        for member in memberProperties {
+            // 检查是否有嵌套路径
+            if let nestedKey = member.nestedPathKey,
+               let (parentPath, leafKey) = member.parseNestedPath(nestedKey) {
+                // 嵌套路径：添加父路径的 CodingKeys
+                let pathComponents = parentPath.split(separator: "/").map { String($0) }
+                for component in pathComponents {
+                    nestedParentKeys.insert(component)
+                }
+                // 叶子节点的键 - 使用属性名作为 case 名称，leafKey 作为字符串值
+                keyCases.append("case \(member.name) = \"\(leafKey)\"")
+            } else {
+                // 简单键：直接生成
+                let keys = member.codableKeys
+                keyCases.append("case \(member.codableKey) = \"\(keys[0])\"")
+                // 回退键
+                for index in 1..<keys.count {
+                    keyCases.append("case \(member.codableKey)_\(index) = \"\(keys[index])\"")
+                }
+            }
+        }
+
+        // 添加嵌套路径的父级 CodingKeys
+        for nestedKey in nestedParentKeys.sorted() {
+            keyCases.append("case \(nestedKey) = \"\(nestedKey)\"")
+        }
+
+        let keys = keyCases.joined(separator: "\n")
+        return """
+        enum CodingKeys: String, CodingKey {
+        \(raw: keys)
         }
         """
     }

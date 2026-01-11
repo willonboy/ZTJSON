@@ -396,3 +396,22 @@ extension Dictionary: ZTJSONExportable where Key == String, Value: ZTJSONExporta
         JSON(self.mapValues { $0.asJSONValue() })
     }
 }
+
+// MARK: - Foundation types support
+
+extension Date: ZTJSONExportable {
+    public func asJSONValue() -> JSON {
+        JSON(ISO8601DateFormatter().string(from: self))
+    }
+}
+
+extension Date: ZTJSONInitializable {
+    public init(from json: JSON) throws {
+        let formatter = ISO8601DateFormatter()
+        guard let dateString = json.string,
+              let date = formatter.date(from: dateString) else {
+            throw ZTJSONError.invalidData
+        }
+        self = date
+    }
+}
