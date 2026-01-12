@@ -181,7 +181,6 @@ struct ZTORMCodeFactory {
 
         // 检查是否有任何属性使用复杂 XPath
         let hasComplexXPath = memberProperties.contains { $0.firstKeyType == .complex }
-        let hasNestedXPath = memberProperties.contains { $0.firstKeyType == .nested }
 
         if ignoreComplexXPath && !hasComplexXPath {
             // 标准 Codable 实现：使用 keyedContainer
@@ -206,6 +205,11 @@ struct ZTORMCodeFactory {
                     } else {
                         return ".\(member.codableKey)_\(index)"
                     }
+                }
+
+                // 如果有 Transformer，使用 Transformer 解码
+                if member.transformerExpr != nil {
+                    return generateTransformerDecodeCode(member: member, keys: keys, keyReferences: keyReferences)
                 }
 
                 if member.isOptional {
@@ -304,6 +308,89 @@ struct ZTORMCodeFactory {
         }
     }
 
+    /// 生成 Transformer 解码代码
+    /// 支持简单键和嵌套路径，使用 JSON + Transformer 方式解码
+    private func generateTransformerDecodeCode(member: ZTMemberProperty, keys: [String], keyReferences: [String]) -> String {
+        let propAccess = "self.\(member.name)"
+        let transformerExpr = member.transformerExpr!
+        let defaultExpr = member.initializerExpr
+
+        // 构建多键回退的 JSON 查找代码
+        if keys.count == 1 {
+            let jsonFetchCode = "try? container.decodeIfPresent(JSON.self, forKey: \(keyReferences[0]))"
+
+            if member.isOptional {
+                return """
+                if let json = \(jsonFetchCode), let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = nil
+                }
+                """
+            } else if member.isHaveDefValue {
+                return """
+                if let json = \(jsonFetchCode), let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = \(defaultExpr)
+                }
+                """
+            } else {
+                return """
+                guard let json = \(jsonFetchCode), let transformed = (\(transformerExpr)).transform(json) else {
+                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(keys[0])", intValue: nil), container.codingPath)
+                }
+                \(propAccess) = transformed
+                """
+            }
+        } else {
+            // 多键回退：需要使用 if-else 链
+            var fallbackChain = ""
+            for (index, keyRef) in keyReferences.enumerated() {
+                if index == 0 {
+                    fallbackChain += "let _\(member.name)Json\(index) = try? container.decodeIfPresent(JSON.self, forKey: \(keyRef))\n"
+                } else {
+                    fallbackChain += "let _\(member.name)Json\(index) = _\(member.name)Json\(index - 1) == nil ? try? container.decodeIfPresent(JSON.self, forKey: \(keyRef)) : _\(member.name)Json\(index - 1)\n"
+                }
+            }
+            // 最终的 JSON 变量（最后一个非 nil 的值）
+            fallbackChain += "let \(member.name)Json: JSON? = "
+            for index in 0..<keys.count {
+                if index > 0 { fallbackChain += " ?? " }
+                fallbackChain += "_\(member.name)Json\(index)"
+            }
+            fallbackChain += "\n"
+
+            if member.isOptional {
+                return """
+                \(fallbackChain)
+                if let json = \(member.name)Json, let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = nil
+                }
+                """
+            } else if member.isHaveDefValue {
+                return """
+                \(fallbackChain)
+                if let json = \(member.name)Json, let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = \(defaultExpr)
+                }
+                """
+            } else {
+                return """
+                \(fallbackChain)
+                guard let json = \(member.name)Json, let transformed = (\(transformerExpr)).transform(json) else {
+                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(keys.joined(separator: "\", \""))\"!, intValue: nil), container.codingPath)
+                }
+                \(propAccess) = transformed
+                """
+            }
+        }
+    }
+
     /// 生成嵌套路径的解码代码
     /// 例如：geo/lat -> container.nestedContainer(keyedBy: CodingKeys.self, forKey: .geo).decode(Double.self, forKey: .lat)
     private func generateNestedDecodeCode(member: ZTMemberProperty, parentPath: String, leafKey: String) -> String {
@@ -320,7 +407,46 @@ struct ZTORMCodeFactory {
             containerChain += ".nestedContainer(keyedBy: CodingKeys.self, forKey: .\(component))"
         }
 
-        // 根据类型生成解码代码
+        // 如果有 Transformer，使用 Transformer 解码
+        if let transformerExpr = member.transformerExpr {
+            let defaultExpr = member.initializerExpr
+
+            if member.isOptional {
+                // Optional: 从嵌套容器获取 JSON，应用 Transformer
+                return """
+                if let nestedContainer = try? \(containerChain),
+                   let json = try? nestedContainer.decodeIfPresent(JSON.self, forKey: \(leafCodingKey)),
+                   let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = nil
+                }
+                """
+            } else if member.isHaveDefValue {
+                // 有默认值: 转换失败则使用默认值
+                return """
+                if let nestedContainer = try? \(containerChain),
+                   let json = try? nestedContainer.decodeIfPresent(JSON.self, forKey: \(leafCodingKey)),
+                   let transformed = (\(transformerExpr)).transform(json) {
+                    \(propAccess) = transformed
+                } else {
+                    \(propAccess) = \(defaultExpr)
+                }
+                """
+            } else {
+                // 必需属性: 转换失败则抛出错误
+                return """
+                let nestedContainer = try \(containerChain)
+                guard let json = try? nestedContainer.decodeIfPresent(JSON.self, forKey: \(leafCodingKey)),
+                      let transformed = (\(transformerExpr)).transform(json) else {
+                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(leafKey)", intValue: nil), container.codingPath)
+                }
+                \(propAccess) = transformed
+                """
+            }
+        }
+
+        // 根据类型生成解码代码（无 Transformer）
         if member.isOptional {
             return """
             if let nestedContainer = try? \(containerChain) {
@@ -371,19 +497,30 @@ struct ZTORMCodeFactory {
                 }
             }.joined(separator: "\n")
 
-            return """
-            \(raw: prefix)func encode(to encoder: Encoder) throws {
-                var container = encoder.container(keyedBy: CodingKeys.self)
-                \(raw: encodeBody)
+            if isSubclass {
+                // subclass 需要先调用 super.encode(to:) 以包含父类属性
+                return """
+                \(raw: prefix)func encode(to encoder: Encoder) throws {
+                    try super.encode(to: encoder)
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    \(raw: encodeBody)
+                }
+                """
+            } else {
+                return """
+                \(raw: prefix)func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    \(raw: encodeBody)
+                }
+                """
             }
-            """
         } else {
             // 原实现：使用 singleValueContainer + base64
             if isSubclass {
                 return """
                 \(raw: prefix)func encode(to encoder: Encoder) throws {
                     var container = encoder.singleValueContainer()
-                    let jsonData = try super.asJSONValue().rawData()
+                    let jsonData = try self.asJSONValue().rawData()
                     try container.encode(jsonData)
                 }
                 """
@@ -402,6 +539,32 @@ struct ZTORMCodeFactory {
     // 4. Export 宏实现
     // 使用 ZTJSONExportable 转换来处理所有类型（包括基本类型通过扩展支持）
     func genJSONExportEncoder(isSubclass: Bool = false) throws -> DeclSyntax {
+        // 生成编译时类型检查代码
+        let typeCheckCode = memberProperties.map { member in
+            let propType = member.type  // 保留 Optional 标记
+            let propTypeName = propType.trimmingCharacters(in: .init(charactersIn: "?"))
+
+            // 生成类型约束检查：利用 Swift 类型系统在编译时验证属性类型是否遵循 ZTJSONExportable
+            // 如果类型不支持，这行代码会在编译时报错
+            if member.isOptional {
+                // Optional 类型：使用 Optional 赋值检查
+                return """
+                // 编译时类型检查：\(member.name): \(propType)
+                // 如果此行报错，说明 \(propTypeName) 不支持 ZTJSONExportable
+                // 解决方法：扩展 \(propTypeName): ZTJSONExportable
+                let _: (any ZTJSONExportable)?? = Optional(nil).map { $0 as \(propTypeName) }
+                """
+            } else {
+                // 非 Optional 类型：使用函数参数类型约束检查
+                return """
+                // 编译时类型检查：\(member.name): \(propType)
+                // 如果此行报错，说明 \(propTypeName) 不支持 ZTJSONExportable
+                // 解决方法：扩展 \(propTypeName): ZTJSONExportable
+                let _: ((\(propType)) -> any ZTJSONExportable) = { $0 as any ZTJSONExportable }
+                """
+            }
+        }.joined(separator: "\n")
+
         // 生成每个属性的转换代码，支持 Optional 和非 Optional
         let body = memberProperties.map { member in
             let propAccess = "self.\(member.name)"
@@ -426,6 +589,7 @@ struct ZTORMCodeFactory {
         if isSubclass {
             return """
             \(raw: prefix)func asJSONValue() -> JSON {
+                \(raw: typeCheckCode)
                 let sup = super.asJSONValue()
                 let sub = JSON([\(raw: body)])
                 return (try? sup.merged(with: sub)) ?? JSON.null
@@ -434,7 +598,8 @@ struct ZTORMCodeFactory {
         } else {
             return """
             \(raw: prefix)func asJSONValue() -> JSON {
-                JSON([\(raw: body)])
+                \(raw: typeCheckCode)
+                return JSON([\(raw: body)])
             }
             """
         }

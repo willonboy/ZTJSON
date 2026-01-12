@@ -172,7 +172,39 @@ struct User {
 }
 ```
 
-### 7. 类继承支持
+### 7. API 参数枚举 (@ZTAPIParam)
+
+```swift
+@ZTAPIParam
+enum UserAPIParam: ZTAPIParamProtocol {
+    case userId(Int)
+    case name(String)
+    case page(Int?)           // Optional 参数，非必需
+    case pageSize(Int?)       // Optional 参数，非必需
+}
+
+// 使用
+let params: [String: Sendable] = [
+    "userId": 123,
+    "name": "Alice",
+    "page": 1
+]
+
+if UserAPIParam.isValid(params) {
+    print("参数有效")
+}
+
+let param = UserAPIParam.userId(123)
+print(param.key)    // "userId"
+print(param.value)  // 123
+```
+
+**注意事项**：
+- Optional 关联值（如 `Int?`、`String?`）会被识别为非必需参数
+- `isValid()` 方法只检查非 Optional 参数是否存在
+- **不支持类型别名形式的 Optional**（如 `typealias OptionalInt = Int?`），请使用显式 `Int?`
+
+### 8. 类继承支持
 
 ```swift
 @ZTJSON
@@ -434,6 +466,22 @@ class NestAddress {
 3. **多 Key 编码** - 多 key 配置时，编码使用第一个键，解码依次尝试所有键
 4. **类型推断** - var 属性会自动推断类型，let 属性需要显式类型或默认值
 5. **Optional 解析** - Optional 属性解析失败时返回 nil，不会抛出错误
+6. **Class 循环引用** - 使用 `@ZTJSON` 或 `@ZTJSONSubclass` 的 class 类型应避免形成循环引用，否则调用 `asJSONValue()` 时可能导致无限循环：
+   ```swift
+   // 错误示例：循环引用
+   @ZTJSON
+   class Node {
+       var value: Int = 0
+       var next: Node?  // 避免：形成循环链时 asJSONValue() 会无限递归
+   }
+
+   // 推荐做法：使用 weak 或打破循环
+   @ZTJSON
+   class Node {
+       var value: Int = 0
+       weak var next: Node?  // 使用 weak 打破循环
+   }
+   ```
 
 ## 许可证
 

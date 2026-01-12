@@ -553,15 +553,15 @@ func get(confs: [XPathParser]) -> Result<[String: any ZTJSONInitializable], XPat
                 }
                 
                 if let usr: [User] = r[.init(type: [User].self)] {
-                    // print("users", usr)
+                    print("users", usr)
                     print("json string \n\n")
-                    // print("\(usr.asJSONValue().rawString() ?? "")")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 // Or
                 if let usr: [User] = r[xpath: "/"] {
-                    // print("users", usr)
-                    // print("json string \n\n")
-                    // print("\(usr.asJSONValue().rawString() ?? "")")
+                    print("users", usr)
+                    print("json string \n\n")
+                    print("\(usr.asJSONValue().rawString() ?? "")")
                 }
                 // print("result \(r)")
                 
@@ -1130,7 +1130,7 @@ let testCases = [
 
 var allPass = true
 for (caseName, expected) in testCases {
-    let param = TestCaseNames.firstName("")  // 占位，只测试 key
+    let _ = TestCaseNames.firstName("")  // 占位，只测试 key
     // 需要重新构造正确的 case
     let key: String
     switch caseName {
@@ -1193,13 +1193,13 @@ print(customKeyPass ? "✅ 所有键名正确！" : "❌ 键名错误")
 
 // 测试 isValid 使用自定义键名
 print("\n[isValid 使用自定义键名]")
-let params: [String: Sendable] = ["user_name": "john", "pwd": "pass", "email_address": "john@test.com"]
-print("isValid(params) = \(CustomKeyParams.isValid(params)) (预期: true)")
+let keyParams: [String: Sendable] = ["user_name": "john", "pwd": "pass", "email_address": "john@test.com"]
+print("isValid(params) = \(CustomKeyParams.isValid(keyParams)) (预期: true)")
 
-let missingParams: [String: Sendable] = ["user_name": "john", "email_address": "john@test.com"]
-print("缺少 pwd: isValid = \(CustomKeyParams.isValid(missingParams)) (预期: false)")
+let missingKeyParams: [String: Sendable] = ["user_name": "john", "email_address": "john@test.com"]
+print("缺少 pwd: isValid = \(CustomKeyParams.isValid(missingKeyParams)) (预期: false)")
 
-if CustomKeyParams.isValid(params) && !CustomKeyParams.isValid(missingParams) {
+if CustomKeyParams.isValid(keyParams) && !CustomKeyParams.isValid(missingKeyParams) {
     print("✅ isValid 方法使用自定义键名正确！")
 } else {
     print("❌ isValid 方法有误")
@@ -1270,3 +1270,535 @@ enum NoAssociatedValues {
     case case2
 }
 """)
+
+// MARK: - 测试 ZTAPIParamProtocol 协议遵循
+print("\n" + String(repeating: "=", count: 60))
+print("测试 ZTAPIParamProtocol 协议遵循")
+print(String(repeating: "=", count: 60))
+
+@ZTAPIParam
+enum TestProtocolConformance {
+    case id(Int)
+    case name(String)
+}
+
+// 验证 enum 遵循 ZTAPIParamProtocol
+let _: any ZTAPIParamProtocol.Type = TestProtocolConformance.self
+print("✅ TestProtocolConformance 遵循 ZTAPIParamProtocol 协议")
+
+// 验证实例可以使用协议属性
+let testParam: any ZTAPIParamProtocol = TestProtocolConformance.id(123)
+print("key: \(testParam.key)")
+print("value: \(testParam.value)")
+
+// 验证协议方法
+let protocolParams: [String: Sendable] = ["id": 123, "name": "test"]
+if TestProtocolConformance.isValid(protocolParams) {
+    print("✅ 协议 isValid 方法工作正常")
+} else {
+    print("❌ 协议 isValid 方法失败")
+}
+
+// MARK: - Date 类型扩展示例
+// ZTJSON 不再内置 Date 支持，用户需要根据 API 格式自行扩展
+
+// 示例 1: ISO8601 格式（推荐使用，带 formatter 缓存优化）
+extension Date: ZTJSONExportable {
+    // 使用 nonisolated(unsafe) 标记，因为 ISO8601DateFormatter 是线程安全的
+    // 但 Swift 6 无法自动推断，需要显式标记
+    private nonisolated(unsafe) static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        return formatter
+    }()
+
+    public func asJSONValue() -> JSON {
+        JSON(Self.iso8601Formatter.string(from: self))
+    }
+}
+
+extension Date: ZTJSONInitializable {
+    public init(from json: JSON) throws {
+        guard let dateString = json.string,
+              let date = Self.iso8601Formatter.date(from: dateString) else {
+            throw ZTJSONError.error(code: ZTJSONError.Code.typeMismatch, msg: "expected ISO8601 date string, got \(json.type)")
+        }
+        self = date
+    }
+}
+
+// 示例 2: 如果你的 API 使用 Unix 时间戳，可以这样扩展：
+/*
+extension Date: ZTJSONExportable {
+    func asJSONValue() -> JSON {
+        JSON(self.timeIntervalSince1970)
+    }
+}
+
+extension Date: ZTJSONInitializable {
+    init(from json: JSON) throws {
+        guard let timestamp = json.double else {
+            throw ZTJSONError.error(code: ZTJSONError.Code.typeMismatch, msg: "expected Unix timestamp, got \(json.type)")
+        }
+        self = Date(timeIntervalSince1970: timestamp)
+    }
+}
+*/
+
+// 示例 3: 如果你的 API 使用自定义日期格式（如 "yyyy-MM-dd HH:mm:ss"）：
+/*
+extension Date: ZTJSONExportable {
+    private nonisolated(unsafe) static let customFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    func asJSONValue() -> JSON {
+        JSON(Self.customFormatter.string(from: self))
+    }
+}
+
+extension Date: ZTJSONInitializable {
+    init(from json: JSON) throws {
+        guard let dateString = json.string,
+              let date = Self.customFormatter.date(from: dateString) else {
+            throw ZTJSONError.error(code: ZTJSONError.Code.typeMismatch, msg: "expected custom date format, got \(json.type)")
+        }
+        self = date
+    }
+}
+*/
+
+// MARK: - 测试类型别名形式的 Optional
+
+typealias OptionalString = String?
+
+@ZTJSON
+struct AliasTest {
+    var name: OptionalString = ""
+}
+
+func testAliasOptional() {
+    print("\n=== 测试类型别名形式的 Optional ===")
+
+    // 测试 1: 有字段的情况
+    let json1 = JSON(["name": "test"])
+    do {
+        let obj1 = try AliasTest(from: json1)
+        print("测试 1 - 有字段: \(obj1.name ?? "nil")")
+    } catch {
+        print("测试 1 - 失败: \(error)")
+    }
+
+    // 测试 2: 字段不存在的情况
+    let json2 = JSON([:])
+    do {
+        let obj2 = try AliasTest(from: json2)
+        print("测试 2 - 无字段: \(obj2.name ?? "nil")")
+    } catch {
+        print("测试 2 - 失败: \(error)")
+    }
+
+    // 测试 3: 字段为 null 的情况
+    let json3 = JSON(["name": NSNull()])
+    do {
+        let obj3 = try AliasTest(from: json3)
+        print("测试 3 - null 值: \(obj3.name ?? "nil")")
+    } catch {
+        print("测试 3 - 失败: \(error)")
+    }
+
+    // 测试 4: 导出 nil 值
+    let testObj = AliasTest(name: nil)
+    let exported = testObj.asJSONValue()
+    print("测试 4 - 导出 nil: \(exported.rawString() ?? "")")
+
+    print("=== 类型别名测试完成 ===\n")
+}
+
+testAliasOptional()
+
+// MARK: - 测试新的错误系统
+
+func testNewErrorSystem() {
+    print("\n=== 测试新的错误系统 ===")
+
+    // 测试 1: 类型不匹配错误
+    let json1 = JSON(["age": "not_a_number"])
+    do {
+        _ = try Int(from: json1)
+        print("测试 1 - 失败: 应该抛出错误")
+    } catch let error as ZTJSONError {
+        print("测试 1 - 类型不匹配:")
+        print("  code: \(error.code)")
+        print("  message: \(error.message)")
+    } catch {
+        print("测试 1 - 其他错误: \(error)")
+    }
+
+    // 测试 2: 数组类型不匹配
+    let json2 = JSON(["items": "not_an_array"])
+    do {
+        _ = try [Int](from: json2)
+        print("测试 2 - 失败: 应该抛出错误")
+    } catch let error as ZTJSONError {
+        print("测试 2 - 数组类型不匹配:")
+        print("  code: \(error.code)")
+        print("  message: \(error.message)")
+    } catch {
+        print("测试 2 - 其他错误: \(error)")
+    }
+
+    // 测试 3: 通用错误形式
+    let customError = ZTJSONError.error(code: 9999, msg: "Custom error message")
+    print("测试 3 - 通用错误:")
+    print("  code: \(customError.code)")
+    print("  message: \(customError.message)")
+
+    print("=== 错误系统测试完成 ===\n")
+}
+
+testNewErrorSystem()
+
+// MARK: - 测试批量查询区分未找到和空数组
+
+func testFindAllLogic() {
+    print("\n=== 测试批量查询 ===")
+
+    // 测试 1: 路径不存在，返回 nil
+    let json1 = JSON([
+        "users": [
+            ["name": "Alice", "age": 25],
+            ["name": "Bob", "age": 30]
+        ]
+    ])
+    let result1 = json1.find(xpath: "nonexistent/*/name")
+    print("测试 1 - 路径不存在:")
+    print("  result: \(result1?.rawString() ?? "nil")")
+    print("  isNil: \(result1 == nil)")
+
+    // 测试 2: 通配符匹配到空数组（路径存在但子元素为空）
+    let json2 = JSON([
+        "users": []
+    ])
+    let result2 = json2.find(xpath: "users/*/name")
+    print("测试 2 - 空数组:")
+    print("  result: \(result2?.rawString() ?? "nil")")
+    print("  isNil: \(result2 == nil)")
+    print("  isEmpty: \(result2?.arrayValue.isEmpty ?? true)")
+
+    // 测试 3: 通配符匹配到空字典
+    let json3 = JSON([
+        "users": [:]
+    ])
+    let result3 = json3.find(xpath: "users/*/name")
+    print("测试 3 - 空字典:")
+    print("  result: \(result3?.rawString() ?? "nil")")
+    print("  isNil: \(result3 == nil)")
+    print("  isEmpty: \(result3?.arrayValue.isEmpty ?? true)")
+
+    // 测试 4: 有匹配的情况
+    let json4 = JSON([
+        "users": [
+            ["name": "Alice"],
+            ["name": "Bob"]
+        ]
+    ])
+    let result4 = json4.find(xpath: "users/*/name")
+    print("测试 4 - 有匹配:")
+    print("  result: \(result4?.rawString() ?? "nil")")
+    print("  count: \(result4?.arrayValue.count ?? 0)")
+
+    // 测试 5: 中间路径不存在，返回 nil
+    let result5 = json1.find(xpath: "users/*/address/nonexistent")
+    print("测试 5 - 中间路径不存在:")
+    print("  result: \(result5?.rawString() ?? "nil")")
+    print("  isNil: \(result5 == nil)")
+
+    // 测试 6: 最后一个组件不匹配，返回空数组
+    let result6 = json1.find(xpath: "users/*/nonexistent")
+    print("测试 6 - 最后组件不匹配:")
+    print("  result: \(result6?.rawString() ?? "nil")")
+    print("  isNil: \(result6 == nil)")
+    print("  isEmpty: \(result6?.arrayValue.isEmpty ?? true)")
+
+    print("=== 批量查询测试完成 ===\n")
+}
+
+testFindAllLogic()
+
+// MARK: - 测试 @ZTAPIParam Optional 检测
+
+@ZTAPIParam
+enum NormalOptionalTest {
+    case count(Int?)         // 显式 Optional
+    case name(String?)       // 显式 Optional
+    case active(Bool)        // 非 Optional
+    case score(Double?)      // 显式 Optional
+}
+
+func testAPIParamNormalOptional() {
+    print("\n=== 测试 @ZTAPIParam 正常 Optional ===")
+
+    // 测试 1: 只有必需参数
+    let params1: [String: Sendable] = ["active": true]
+    print("测试 1 - 只有必需参数 active:")
+    print("  isValid: \(NormalOptionalTest.isValid(params1))")
+
+    // 测试 2: 缺少所有 Optional 参数
+    let params2: [String: Sendable] = ["active": true]
+    print("测试 2 - 缺少所有 Optional 参数:")
+    print("  isValid: \(NormalOptionalTest.isValid(params2))")
+
+    // 测试 3: 包含 Optional 参数
+    let params3: [String: Sendable] = ["active": true, "count": 42, "name": "Test"]
+    print("测试 3 - 包含 Optional 参数:")
+    print("  isValid: \(NormalOptionalTest.isValid(params3))")
+
+    // 测试 4: 缺少必需参数
+    let params4: [String: Sendable] = ["count": 42]
+    print("测试 4 - 缺少必需参数 active:")
+    print("  isValid: \(NormalOptionalTest.isValid(params4))")
+
+    print("=== @ZTAPIParam 正常 Optional 测试完成 ===\n")
+}
+
+testAPIParamNormalOptional()
+
+// MARK: - 测试 @ZTAPIParam 类型别名 Optional 检测
+
+typealias OptionalInt = Int?
+
+@ZTAPIParam
+enum AliasOptionalTest {
+    case count(OptionalInt)  // 类型别名形式的 Optional - 不支持
+    case name(String)
+    case active(Bool)
+}
+
+func testAPIParamAliasOptional() {
+    print("\n=== 测试 @ZTAPIParam 类型别名 Optional ===")
+
+    // 测试 1: 缺少 Optional 参数 count
+    let params1: [String: Sendable] = [
+        "name": "Test",
+        "active": true
+    ]
+    print("测试 1 - 缺少 Optional 参数 count:")
+    print("  isValid: \(AliasOptionalTest.isValid(params1))")
+    print("  预期: false (类型别名 Optional 不被识别为 Optional)")
+
+    // 测试 2: 包含所有参数
+    let params2: [String: Sendable] = [
+        "count": 42,
+        "name": "Test",
+        "active": true
+    ]
+    print("测试 2 - 包含所有参数:")
+    print("  isValid: \(AliasOptionalTest.isValid(params2))")
+
+    print("=== @ZTAPIParam 类型别名 Optional 测试完成 ===\n")
+}
+
+testAPIParamAliasOptional()
+
+// MARK: - 测试 XPath 深度限制
+
+func testXPathDepthLimit() {
+    print("\n=== 测试 XPath 深度限制 ===")
+
+    // 用 JSON 字符串直接构造测试数据
+    // 构造一个 5 层嵌套的结构验证基本功能
+    let testJSONString = """
+    {
+        "a": {
+            "b": {
+                "c": {
+                    "d": {
+                        "e": "found"
+                    }
+                }
+            }
+        }
+    }
+    """
+
+    guard let json = try? JSON(data: testJSONString.data(using: .utf8)!) else {
+        print("构造测试 JSON 失败")
+        return
+    }
+
+    // 测试 1: 正常深度 (5 层)
+    print("测试 1 - 正常深度 (5 层):")
+    if let result = json.find(xpath: "a/b/c/d/e") {
+        print("  预期: 找到结果 \(result)")
+    } else {
+        print("  意外: 返回 nil")
+    }
+
+    // 测试 2: 超过深度限制 (105 层)
+    print("测试 2 - 深度超过限制 (105 层):")
+    let deepPath = String(repeating: "x/", count: 105) + "y"
+    if let result = json.find(xpath: deepPath) {
+        print("  意外: 找到结果 \(result)")
+    } else {
+        print("  预期: 返回 nil (超过深度限制)")
+    }
+
+    // 测试 3: 通配符深度超过限制
+    print("测试 3 - 通配符深度超过限制:")
+    let wildcardPath = String(repeating: "*/", count: 105) + "value"
+    if let result = json.find(xpath: wildcardPath) {
+        print("  意外: 找到结果 \(result)")
+    } else {
+        print("  预期: 返回 nil (超过深度限制)")
+    }
+
+    // 测试 4: 通配符正常工作
+    print("测试 4 - 通配符正常查询:")
+    let json2: JSON = [
+        "items": [
+            ["name": "a"],
+            ["name": "b"]
+        ]
+    ]
+    if let result = json2.find(xpath: "items/*/name") {
+        print("  预期: 找到结果 \(result)")
+    } else {
+        print("  意外: 返回 nil")
+    }
+
+    print("=== XPath 深度限制测试完成 ===\n")
+}
+
+testXPathDepthLimit()
+
+// MARK: - 测试 @ZTJSONKey 参数验证
+
+// 正确用法示例
+@ZTJSON
+struct KeyValidationCorrect {
+    // 单个键
+    @ZTJSONKey("custom_name")
+    var name: String = ""
+
+    // 多个回退键
+    @ZTJSONKey("primary", "fallback1", "fallback2")
+    var multiKey: String = ""
+
+    // 嵌套路径
+    @ZTJSONKey("path/to/value")
+    var nested: String = ""
+}
+
+print("=== @ZTJSONKey 参数验证测试 ===")
+print("正确用法: 编译通过")
+
+// 以下用法会产生编译错误（已注释，仅作为文档）：
+/*
+// 错误 1: 没有参数
+@ZTJSON
+struct ErrorNoParams {
+    @ZTJSONKey()
+    var field: String = ""  // 编译错误: "@ZTJSONKey 至少需要一个参数"
+}
+
+// 错误 2: 参数过多（超过 5 个）
+@ZTJSON
+struct ErrorTooManyParams {
+    @ZTJSONKey("a", "b", "c", "d", "e", "f")
+    var field: String = ""  // 编译错误: "@ZTJSONKey 最多支持 5 个参数"
+}
+*/
+
+print("错误用法（取消注释会触发编译错误）:")
+print("  - @ZTJSONKey() 无参数: 至少需要一个参数")
+print("  - @ZTJSONKey(\"a\",\"b\",\"c\",\"d\",\"e\",\"f\"): 最多支持 5 个参数")
+print("=== @ZTJSONKey 参数验证测试完成 ===\n")
+
+// MARK: - 测试 Subclass Encode 包含子类属性
+
+@ZTJSON
+open class BaseAnimal {
+    var baseName: String = ""
+    var baseAge: Int = 0
+}
+
+@ZTJSONSubclass
+open class Dog: BaseAnimal {
+    var breed: String = ""
+    var isGoodBoy: Bool = true
+}
+
+func testSubclassEncode() {
+    print("\n=== 测试 Subclass Encode 包含子类属性 ===")
+
+    let dog = Dog()
+    dog.baseName = "Buddy"
+    dog.baseAge = 3
+    dog.breed = "Golden Retriever"
+    dog.isGoodBoy = true
+
+    // 测试 asJSONValue() - 应该包含所有属性
+    let json = dog.asJSONValue()
+    print("asJSONValue():")
+    print("  \(json.rawString() ?? "")")
+
+    // 验证属性是否都存在
+    let hasBaseName = json["baseName"].string == "Buddy"
+    let hasBaseAge = json["baseAge"].int == 3
+    let hasBreed = json["breed"].string == "Golden Retriever"
+    let hasIsGoodBoy = json["isGoodBoy"].bool == true
+
+    print("属性验证:")
+    print("  baseName: \(hasBaseName ? "✓" : "✗")")
+    print("  baseAge: \(hasBaseAge ? "✓" : "✗")")
+    print("  breed: \(hasBreed ? "✓" : "✗")")
+    print("  isGoodBoy: \(hasIsGoodBoy ? "✓" : "✗")")
+
+    // 测试 Codable encode - 也应该包含所有属性
+    do {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        let data = try encoder.encode(dog)
+        if let encodedString = String(data: data, encoding: .utf8) {
+            print("\nCodable encode():")
+            print("  \(encodedString)")
+        }
+
+        let encodedJSON = try JSON(data: data)
+
+        let encodedHasBaseName = encodedJSON["baseName"].string == "Buddy"
+        let encodedHasBreed = encodedJSON["breed"].string == "Golden Retriever"
+
+        print("Codable 属性验证:")
+        print("  baseName: \(encodedHasBaseName ? "✓" : "✗")")
+        print("  breed: \(encodedHasBreed ? "✓" : "✗")")
+
+        // 调试：检查父类是否正确生成了 encode
+        print("\n调试 - 直接编码父类:")
+        let baseAnimal: BaseAnimal = dog
+        let baseData = try encoder.encode(baseAnimal)
+        let baseJSON = try JSON(data: baseData)
+        print("  BaseAnimal.encode(): \(baseJSON.rawString() ?? "")")
+
+        if hasBaseName && hasBaseAge && hasBreed && hasIsGoodBoy && encodedHasBaseName && encodedHasBreed {
+            print("\n✓ 所有测试通过 - 子类属性正确编码")
+        } else {
+            print("\n✗ 测试失败 - 某些属性未正确编码")
+        }
+    } catch {
+        print("Codable encode 错误: \(error)")
+    }
+
+    print("=== Subclass Encode 测试完成 ===\n")
+}
+
+testSubclassEncode()
+
+// MARK: - 调用其他测试文件中的测试函数
+
+// TransformerTest.swift 中的测试
+runTransformerTests()
+
+print("\n=== 所有测试完成 ===\n")

@@ -8,7 +8,9 @@ private struct CaseInfo {
     let isOptional: Bool    // 关联值是否是 Optional 类型
 }
 
-public struct ZTAPIParam: MemberMacro {
+public struct ZTAPIParam: MemberMacro, ExtensionMacro {
+    // MARK: - MemberMacro
+
     public static func expansion(of node: AttributeSyntax,
                                  providingMembersOf declaration: some DeclGroupSyntax,
                                  in context: some MacroExpansionContext) throws -> [DeclSyntax] {
@@ -18,7 +20,6 @@ public struct ZTAPIParam: MemberMacro {
 
         // 收集所有 case 的信息（包括自定义键名）
         var caseInfos: [CaseInfo] = []
-        var hasAssociatedValues = false
 
         for member in enumDecl.memberBlock.members {
             guard let caseDecl = member.decl.as(EnumCaseDeclSyntax.self) else { continue }
@@ -46,15 +47,17 @@ public struct ZTAPIParam: MemberMacro {
                     throw ZTASTError("@ZTAPIParam 要求所有 case 必须有关联值，case \(name) 没有关联值")
                 }
 
-                hasAssociatedValues = true
-
-                // 检查关联值是否是 Optional 类型
-                var isOptional = false
-                if let firstParam = parameterClause.parameters.first {
-                    let typeStr = firstParam.type.trimmedDescription
-                    // 检查是否是 Optional 类型（T? 或 Optional<T>）
-                    isOptional = typeStr.contains("?") || typeStr.hasPrefix("Optional<")
+                // 检查关联值约束
+                guard let firstParam = parameterClause.parameters.first else {
+                    throw ZTASTError("case \(name) 必须有一个关联值")
                 }
+
+                let paramType = firstParam.type
+
+                // 检查是否是 Optional 类型（使用 SwiftSyntax 类型检查）
+                let isOptional = paramType.is(OptionalTypeSyntax.self)
+
+                // Sendable 约束在编译时检查，这里不做语法分析
 
                 caseInfos.append(CaseInfo(name: name, customKey: customKey, isOptional: isOptional))
             }
@@ -75,17 +78,9 @@ public struct ZTAPIParam: MemberMacro {
 
         var members: [DeclSyntax] = []
 
-        if let kp = DeclSyntax(stringLiteral: keyProperty).as(DeclSyntax.self) {
-            members.append(kp)
-        }
-
-        if let vp = DeclSyntax(stringLiteral: valueProperty).as(DeclSyntax.self) {
-            members.append(vp)
-        }
-
-        if let iv = DeclSyntax(stringLiteral: isValidMethod).as(DeclSyntax.self) {
-            members.append(iv)
-        }
+        members.append(DeclSyntax(stringLiteral: keyProperty))
+        members.append(DeclSyntax(stringLiteral: valueProperty))
+        members.append(DeclSyntax(stringLiteral: isValidMethod))
 
         return members
     }
@@ -106,7 +101,7 @@ public struct ZTAPIParam: MemberMacro {
         """
     }
 
-    /// 生成 value 属性
+    /// 生成 value 属性（返回 Sendable）
     private static func generateValueProperty(caseInfos: [CaseInfo]) -> String {
         let cases = caseInfos.map { info in
             "        case .\(info.name)(let v):\n            return v"
@@ -158,5 +153,26 @@ public struct ZTAPIParam: MemberMacro {
         }
 
         return result
+    }
+
+    // MARK: - ExtensionMacro
+
+    public static func expansion(of node: AttributeSyntax,
+                                 attachedTo declaration: some DeclGroupSyntax,
+                                 providingExtensionsOf type: some TypeSyntaxProtocol,
+                                 conformingTo protocols: [TypeSyntax],
+                                 in context: some MacroExpansionContext) throws -> [ExtensionDeclSyntax] {
+        // 检查是否已经遵循 ZTAPIParamProtocol
+        let currentInherited = declaration.inheritanceClause?.inheritedTypes.compactMap { $0.type.trimmedDescription } ?? []
+        if currentInherited.contains("ZTAPIParamProtocol") {
+            return []
+        }
+
+        // 生成 extension 让 enum 遵循 ZTAPIParamProtocol
+        let ext: DeclSyntax = """
+        extension \(type.trimmed): ZTAPIParamProtocol {}
+        """
+
+        return [ext.cast(ExtensionDeclSyntax.self)]
     }
 }

@@ -24,6 +24,7 @@ public macro ZTJSONLetDefValue(_ defValue: Any) = #externalMacro(module: "ZTJSON
 public macro ZTJSONIgnore() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONIgnore")
 
 @attached(member, names: named(key), named(value), arbitrary)
+@attached(extension, conformances: ZTAPIParamProtocol)
 public macro ZTAPIParam() = #externalMacro(module: "ZTJSONMacros", type: "ZTAPIParam")
 
 @attached(peer)
