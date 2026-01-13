@@ -516,23 +516,14 @@ struct ZTORMCodeFactory {
             }
         } else {
             // 原实现：使用 singleValueContainer + base64
-            if isSubclass {
-                return """
-                \(raw: prefix)func encode(to encoder: Encoder) throws {
-                    var container = encoder.singleValueContainer()
-                    let jsonData = try self.asJSONValue().rawData()
-                    try container.encode(jsonData)
-                }
-                """
-            } else {
-                return """
-                \(raw: prefix)func encode(to encoder: Encoder) throws {
-                    var container = encoder.singleValueContainer()
-                    let jsonData = try self.asJSONValue().rawData()
-                    try container.encode(jsonData)
-                }
-                """
+            // 用于复杂 XPath（通配符、数组索引等）
+            return """
+            \(raw: prefix)func encode(to encoder: Encoder) throws {
+                var container = encoder.singleValueContainer()
+                let jsonData = try self.asJSONValue().rawData()
+                try container.encode(jsonData)
             }
+            """
         }
     }
 
@@ -627,6 +618,7 @@ struct ZTORMCodeFactory {
     func genCodingKeys() throws -> DeclSyntax {
         var keyCases: [String] = []
         var nestedParentKeys: Set<String> = []
+        var allCaseNames: Set<String> = []
 
         for member in memberProperties {
             // 检查是否有嵌套路径
@@ -639,20 +631,31 @@ struct ZTORMCodeFactory {
                 }
                 // 叶子节点的键 - 使用属性名作为 case 名称，leafKey 作为字符串值
                 keyCases.append("case \(member.name) = \"\(leafKey)\"")
+                allCaseNames.insert(member.name)
             } else {
                 // 简单键：直接生成
                 let keys = member.codableKeys
                 keyCases.append("case \(member.codableKey) = \"\(keys[0])\"")
+                allCaseNames.insert(member.codableKey)
                 // 回退键
                 for index in 1..<keys.count {
-                    keyCases.append("case \(member.codableKey)_\(index) = \"\(keys[index])\"")
+                    let fallbackKeyName = "\(member.codableKey)_\(index)"
+                    keyCases.append("case \(fallbackKeyName) = \"\(keys[index])\"")
+                    allCaseNames.insert(fallbackKeyName)
                 }
             }
         }
 
-        // 添加嵌套路径的父级 CodingKeys
+        // 添加嵌套路径的父级 CodingKeys，并检测冲突
         for nestedKey in nestedParentKeys.sorted() {
+            // 检测冲突：父级名称是否与已有 case 名称重复
+            if allCaseNames.contains(nestedKey) {
+                throw ZTASTError("CodingKey conflict: '\(nestedKey)' conflicts with an existing property or CodingKey. " +
+                               "When using nested path like 'xxx/\(nestedKey)/yyy', the parent key '\(nestedKey)' " +
+                               "cannot be used as a property name. Please rename the property or use a different nested path.")
+            }
             keyCases.append("case \(nestedKey) = \"\(nestedKey)\"")
+            allCaseNames.insert(nestedKey)
         }
 
         let keys = keyCases.joined(separator: "\n")

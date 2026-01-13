@@ -1801,4 +1801,7 @@ testSubclassEncode()
 // TransformerTest.swift 中的测试
 runTransformerTests()
 
+// BugFixTest.swift 中的测试
+runBugFixTests()
+
 print("\n=== 所有测试完成 ===\n")
