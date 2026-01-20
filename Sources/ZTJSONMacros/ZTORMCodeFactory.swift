@@ -147,10 +147,10 @@ struct ZTORMCodeFactory {
             let typeName = member.type.trimmingCharacters(in: .init(charactersIn: "?"))
             if let transformerExpr = member.transformerExpr {
                 return """
-                if let t = \(find), t != .null { 
-                    self.\(member.name) = ((\(transformerExpr)).transform(t)) ?? (\(member.initializerExpr)) 
+                if let t = \(find), t != .null {
+                    self.\(member.name) = ((\(transformerExpr)).transform(t)) ?? (\(member.initializerExpr))
                 } else {
-                    self.\(member.name) = \(member.initializerExpr) 
+                    self.\(member.name) = \(member.initializerExpr)
                 }
                 """
             }
@@ -279,7 +279,9 @@ struct ZTORMCodeFactory {
                             code += "_\(member.name)Val\(index + 1)"
                         }
                         code += " else {\n"
-                        code += "    throw DecodingError.keyNotFound(CodingKeys(stringValue: \"\(keys.joined(separator: "\", \""))\"!, intValue: nil), container.codingPath)\n"
+                        let keysList = keys.joined(separator: "\", \"")
+                        code += "    throw DecodingError.keyNotFound(CodingKeys.\(member.codableKey),\n"
+                        code += "                                     DecodingError.Context(codingPath: container.codingPath, debugDescription: \"No value associated with any of keys: \(keysList)\"))\n"
                         code += "}\n"
                         return code
                     }
@@ -338,7 +340,8 @@ struct ZTORMCodeFactory {
             } else {
                 return """
                 guard let json = \(jsonFetchCode), let transformed = (\(transformerExpr)).transform(json) else {
-                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(keys[0])", intValue: nil), container.codingPath)
+                    throw DecodingError.keyNotFound(CodingKeys.\(member.codableKey),
+                                                     DecodingError.Context(codingPath: container.codingPath, debugDescription: "No value associated with key \(keys[0])."))
                 }
                 \(propAccess) = transformed
                 """
@@ -380,10 +383,12 @@ struct ZTORMCodeFactory {
                 }
                 """
             } else {
+                let keysList = keys.joined(separator: "\", \"")
                 return """
                 \(fallbackChain)
                 guard let json = \(member.name)Json, let transformed = (\(transformerExpr)).transform(json) else {
-                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(keys.joined(separator: "\", \""))\"!, intValue: nil), container.codingPath)
+                    throw DecodingError.keyNotFound(CodingKeys.\(member.codableKey),
+                                                     DecodingError.Context(codingPath: container.codingPath, debugDescription: "No value associated with any of keys: \(keysList)"))
                 }
                 \(propAccess) = transformed
                 """
@@ -439,7 +444,8 @@ struct ZTORMCodeFactory {
                 let nestedContainer = try \(containerChain)
                 guard let json = try? nestedContainer.decodeIfPresent(JSON.self, forKey: \(leafCodingKey)),
                       let transformed = (\(transformerExpr)).transform(json) else {
-                    throw DecodingError.keyNotFound(CodingKeys(stringValue: "\(leafKey)", intValue: nil), container.codingPath)
+                    throw DecodingError.keyNotFound(CodingKeys.\(member.name),
+                                                     DecodingError.Context(codingPath: container.codingPath, debugDescription: "No value associated with key \(leafKey)."))
                 }
                 \(propAccess) = transformed
                 """

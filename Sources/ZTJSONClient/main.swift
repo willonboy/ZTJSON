@@ -607,6 +607,147 @@ get(confs: [.init(type: [User].self),
             //.init(type: [NestAddress].self)
             ])
 
+
+
+
+
+// MARK: - 枚举属性使用示例
+
+/// 使用 @ZTJSONEnum 宏自动支持 ZTJSON 序列化
+/// 要求：枚举必须有原始值（RawRepresentable），如 `enum MyEnum: Int`
+/// 宏会自动生成 asJSONValue()、init(from:) 方法和 extension 遵循协议
+@ZTJSONEnum
+enum IMChatType: RawRepresentable, Codable {
+    init?(rawValue: Int32) {
+        switch rawValue {
+        case 1: self = .singleChat
+        case 2: self = .groupChat
+        case 3: self = .broadcastNow
+        case 4: self = .tempChat
+        case 5: self = .meetingChat
+        case 6: self = .audioAndVideo
+        case 1001: self = .guest
+        default: return nil
+        }
+    }
+
+    var rawValue: Int32 {
+        switch self {
+        case .singleChat: return 1
+        case .groupChat: return 2
+        case .broadcastNow: return 3
+        case .tempChat: return 4
+        case .meetingChat: return 5
+        case .audioAndVideo: return 6
+        case .guest: return 1001
+        }
+    }
+    
+    typealias RawValue = Int32
+    
+    /// 单聊
+    case singleChat
+    /// 群聊
+    case groupChat
+    /// 实时广播
+    case broadcastNow
+    /// 临时会话
+    case tempChat
+    /// 会议消息
+    case meetingChat
+    /// 音视频
+    case audioAndVideo
+    /// 拓客(属于客户端自定义 跟服务端保持一致)
+    case guest
+}
+
+@ZTJSON
+class IMChatModel {
+    @ZTJSONLetDefValue("")
+    let sessionId: String
+    @ZTJSONLetDefValue(IMChatType.singleChat)
+    let chatType: IMChatType  // @ZTJSONEnum 让枚举自动支持 ZTJSONInitializable，无需 @ZTJSONTransformer
+    @ZTJSONLetDefValue(0)
+    let chatObjId: Int64
+}
+
+// MARK: - @ZTJSONEnum 测试
+
+print("\n=== @ZTJSONEnum 测试 ===\n")
+
+// 测试1：ZTJSON 方式初始化
+print("[测试1] ZTJSON 方式初始化")
+do {
+    let json1 = JSON([
+        "sessionId": "session123",
+        "chatType": 2,  // 群聊
+        "chatObjId": 10001
+    ])
+    let model1 = try IMChatModel(from: json1)
+    print("  sessionId: \(model1.sessionId)")
+    print("  chatType: \(model1.chatType)")
+    print("  chatObjId: \(model1.chatObjId)")
+    print("  ✅ ZTJSON 初始化成功")
+} catch {
+    print("  ❌ 初始化失败: \(error)")
+}
+
+// 测试2：Codable 方式解码
+print("\n[测试2] Codable 方式解码")
+if let data = """
+{
+    "sessionId": "session456",
+    "chatType": 3,
+    "chatObjId": 10002
+}
+""".data(using: .utf8) {
+    do {
+        let model2 = try JSONDecoder().decode(IMChatModel.self, from: data)
+        print("  sessionId: \(model2.sessionId)")
+        print("  chatType: \(model2.chatType)")
+        print("  chatObjId: \(model2.chatObjId)")
+        print("  ✅ Codable 解码成功")
+    } catch {
+        print("  ❌ 解码失败: \(error)")
+    }
+}
+
+// 测试3：asJSONValue 导出
+print("\n[测试3] asJSONValue 导出")
+let model3 = IMChatModel(sessionId: "session789", chatType: .meetingChat, chatObjId: 10003)
+let exported = model3.asJSONValue()
+print("  exported: \(exported.rawString() ?? "")")
+print("  ✅ asJSONValue 导出成功")
+
+// 测试4：Codable 编码
+print("\n[测试4] Codable 编码")
+do {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .prettyPrinted
+    let data = try encoder.encode(model3)
+    let jsonString = String(data: data, encoding: .utf8) ?? ""
+    print("  encoded: \(jsonString)")
+    print("  ✅ Codable 编码成功")
+} catch {
+    print("  ❌ 编码失败: \(error)")
+}
+
+// 测试6：枚举的 asJSONValue
+print("\n[测试6] 枚举的 asJSONValue")
+let chatType = IMChatType.groupChat
+print("  asJSONValue: \(chatType.asJSONValue().rawValue)")
+print("  ✅ 枚举 asJSONValue 成功")
+
+print("\n=== @ZTJSONEnum 测试完成 ===\n")
+
+
+
+
+
+
+
+
+
 // MARK: - Codable Encode/Decode 往返测试
 print("\n" + String(repeating: "=", count: 50))
 print("Testing Codable encode/decode round-trip")
@@ -1805,3 +1946,7 @@ runTransformerTests()
 runBugFixTests()
 
 print("\n=== 所有测试完成 ===\n")
+
+// MARK: - 测试非 optional 属性默认值
+
+// 测试1: var non-optional 不加默认值
