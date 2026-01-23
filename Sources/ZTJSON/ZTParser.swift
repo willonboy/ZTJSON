@@ -492,21 +492,3 @@ extension Dictionary: ZTJSONExportable where Key == String, Value: ZTJSONExporta
         JSON(self.mapValues { $0.asJSONValue() })
     }
 }
-
-// MARK: - ZTAPIParam Protocol
-
-/// API 参数枚举协议
-public protocol ZTAPIParamProtocol: Sendable {
-    /// 参数对应的键名
-    var key: String { get }
-    /// 参数值
-    var value: Sendable { get }
-
-    /// 数据发送前校验参数；如是否缺失必要参数；某参数是否合法
-    static func isValid(_ params: [String: Sendable]) -> Bool
-}
-
-public extension ZTAPIParamProtocol {
-    /// 默认实现：总是返回 true
-    static func isValid(_ params: [String: Sendable]) -> Bool { true }
-}

@@ -11,7 +11,5 @@ struct ZTJSONPlugin: CompilerPlugin {
         ZTJSONLetDefValue.self,
         ZTJSONIgnore.self,
         ZTJSONEnum.self,
-        ZTAPIParam.self,
-        ZTAPIParamKey.self,
     ]
 }

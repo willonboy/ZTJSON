@@ -26,10 +26,3 @@ public macro ZTJSONIgnore() = #externalMacro(module: "ZTJSONMacros", type: "ZTJS
 @attached(member, names: named(asJSONValue), named(init(from:)))
 @attached(extension, conformances: ZTJSONExportable, ZTJSONInitializable)
 public macro ZTJSONEnum() = #externalMacro(module: "ZTJSONMacros", type: "ZTJSONEnum")
-
-@attached(member, names: named(key), named(value), arbitrary)
-@attached(extension, conformances: ZTAPIParamProtocol)
-public macro ZTAPIParam() = #externalMacro(module: "ZTJSONMacros", type: "ZTAPIParam")
-
-@attached(peer)
-public macro ZTAPIParamKey(_ key: String) = #externalMacro(module: "ZTJSONMacros", type: "ZTAPIParamKey")

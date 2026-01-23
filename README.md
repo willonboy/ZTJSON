@@ -172,39 +172,7 @@ struct User {
 }
 ```
 
-### 7. API 参数枚举 (@ZTAPIParam)
-
-```swift
-@ZTAPIParam
-enum UserAPIParam: ZTAPIParamProtocol {
-    case userId(Int)
-    case name(String)
-    case page(Int?)           // Optional 参数，非必需
-    case pageSize(Int?)       // Optional 参数，非必需
-}
-
-// 使用
-let params: [String: Sendable] = [
-    "userId": 123,
-    "name": "Alice",
-    "page": 1
-]
-
-if UserAPIParam.isValid(params) {
-    print("参数有效")
-}
-
-let param = UserAPIParam.userId(123)
-print(param.key)    // "userId"
-print(param.value)  // 123
-```
-
-**注意事项**：
-- Optional 关联值（如 `Int?`、`String?`）会被识别为非必需参数
-- `isValid()` 方法只检查非 Optional 参数是否存在
-- **不支持类型别名形式的 Optional**（如 `typealias OptionalInt = Int?`），请使用显式 `Int?`
-
-### 8. 类继承支持
+### 7. 类继承支持
 
 ```swift
 @ZTJSON
